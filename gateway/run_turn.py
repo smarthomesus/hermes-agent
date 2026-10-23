@@ -234,6 +234,16 @@ class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, Gateway
         if not isinstance(prepared, self._PreparedTurn):
             return prepared
         history, message_text = prepared.history, prepared.message_text
+        from gateway.feedback_lifecycle import configure_feedback, stage_feedback
+        feedback_lease = None
+        if not event.internal:
+            notes = []
+            adapter = self._delivery_adapter_for(source)
+            extra = getattr(getattr(adapter, 'config', None), 'extra', {})
+            feedback_lease = stage_feedback(source.platform, source=source,
+                config=configure_feedback(source.platform, extra), append_note=notes.append)
+            if notes:
+                prepared.context_prompt = (prepared.context_prompt or '') + '\n\n' + '\n'.join(notes)
 
         try:
             hook_ctx = {
@@ -330,6 +340,12 @@ class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, Gateway
                 hidden_reasoning_incomplete=hidden_reasoning_incomplete,
                 is_context_overflow_failure=is_context_overflow_failure,
             )
+            if feedback_lease and not (agent_failed_early or hidden_reasoning_incomplete or is_context_overflow_failure):
+                if self._is_session_run_current(_quick_key, run_generation):
+                    try:
+                        feedback_lease.commit()
+                    except Exception:
+                        logger.debug('optional feedback settlement failed', exc_info=True)
             return await self._deliver_turn_response_then_limit_offer(
                 event, source, session_entry, session_key, run_generation,
                 agent_result, agent_messages, response, _footer_line, _intentional_silence,
@@ -338,6 +354,8 @@ class GatewayTurnMixin(GatewayTurnPrepareMixin, GatewayTurnHygieneMixin, Gateway
         except Exception as e:
             return await self._hmwa_agent_error_reply(e, event, source, session_entry, session_key, prepared)
         finally:
+            if feedback_lease:
+                feedback_lease.release()
             # Restore session context variables to their pre-handler state
             self._clear_session_env(_session_env_tokens)
 
