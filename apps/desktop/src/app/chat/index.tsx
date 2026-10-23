@@ -1,3 +1,5 @@
+import { RenderSlot } from '@/contrib/react/render-slot'
+import { CHAT_OVERLAY_AREA } from '@/lib/render-slots'
 import { type AppendMessage, AssistantRuntimeProvider, type ThreadMessage } from '@assistant-ui/react'
 import { useStore } from '@nanostores/react'
 import type { ReadableAtom } from 'nanostores'
@@ -758,6 +760,7 @@ const ChatViewContent = memo(function ChatViewContent({
       data-setup-chat={setupChat ? '' : undefined}
     >
       <Backdrop />
+      <RenderSlot area={CHAT_OVERLAY_AREA} props={{ storedId, runtimeId: activeSessionId, profile: activeGatewayProfile }} />
       {/* Tiles get their chrome from the layout zone (chip strip); the modal
           prompt overlays stay active-session-scoped in the primary surface. */}
       {isPrimary && (

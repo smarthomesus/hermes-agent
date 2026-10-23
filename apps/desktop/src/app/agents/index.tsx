@@ -1,3 +1,5 @@
+import { RenderSlot } from '@/contrib/react/render-slot'
+import { AGENTS_PANEL_AREA } from '@/lib/render-slots'
 import { compactNumber } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
@@ -98,6 +100,7 @@ export function AgentsView({ onClose }: AgentsViewProps) {
 
   return (
     <Panel closeLabel={t.agents.close} onClose={onClose}>
+      <RenderSlot area={AGENTS_PANEL_AREA} props={{}} />
       {tree.length === 0 ? (
         <PanelEmpty description={t.agents.emptyDesc} icon="hubot" title={t.agents.emptyTitle} />
       ) : (

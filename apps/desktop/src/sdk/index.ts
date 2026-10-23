@@ -2016,3 +2016,6 @@ export { atom, computed } from 'nanostores'
 /** Markdown renderer (same pipeline core chat surfaces use) so plugins render
  *  message text as a preview instead of raw Markdown source. */
 export { Streamdown } from 'streamdown'
+
+export { RenderSlot, useRenderSlotCount } from '@/contrib/react/render-slot'
+export { BOT_ROW_AREAS, CHAT_OVERLAY_AREA, AGENTS_PANEL_AREA, type BotRowSlotProps, type ChatOverlaySlotProps, type AgentsPanelSlotProps, type RenderSlotContribution } from '@/lib/render-slots'

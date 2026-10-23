@@ -1,3 +1,5 @@
+import { RenderSlot } from '@/contrib/react/render-slot'
+import { BOT_ROW_AREAS } from '@/lib/render-slots'
 /**
  * The two rows the Bots rail lists: one bot, and one group chat.
  *
@@ -292,6 +294,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
             <Tip label={rowTooltip}>
               <span className="min-w-0 truncate text-[0.8125rem] font-medium">{displayName(bot, meta)}</span>
             </Tip>
+            <RenderSlot area={BOT_ROW_AREAS.nameSuffix} props={{ name: bot.name, connectionId: bot.connectionId ?? 'local', bot }} />
           </div>
           {attention ? (
             <Tip label={botAttentionHint(attention.reason)}>
@@ -311,6 +314,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
             </span>
           ) : null}
         </div>
+        <RenderSlot area={BOT_ROW_AREAS.meta} props={{ name: bot.name, connectionId: bot.connectionId ?? 'local', bot }} />
         {showDetailsRow ? (
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-(--ui-text-tertiary)">
             {showHandle ? (
@@ -329,6 +333,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <RenderSlot area={BOT_ROW_AREAS.after} props={{ name: bot.name, connectionId: bot.connectionId ?? 'local', bot }} />
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => void openRosterBot(bot)}>{b.bot.openBotChat}</ContextMenuItem>
         <ContextMenuItem onSelect={() => openBotScreen(bot, meta)}>{b.screen.menu}</ContextMenuItem>
