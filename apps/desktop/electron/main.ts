@@ -1,3 +1,4 @@
+import { runUpdateCommandHook } from './update-command-hook'
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 
 import type { GatewayEndpoint } from './local-gateway'
@@ -4416,6 +4417,9 @@ async function applyUpdates(): Promise<UpdaterApplyResultWire> {
         return managedBusy
       }
 
+      if (await runUpdateCommandHook(resolveUpdateRoot(), HERMES_HOME, DEFAULT_UPDATE_BRANCH)) {
+        return { ok: true, message: 'Configured update handler completed' }
+      }
       const packaged: UpdaterStrategy | null = await resolvePackagedUpdateStrategy()
       const strategy: UpdaterStrategy = packaged ?? resolveCheckoutUpdateStrategy()
       const result: UpdaterApplyResultWire = await desktopMetrics.trackUpdateApply(packaged, strategy)

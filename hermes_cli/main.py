@@ -2389,7 +2389,10 @@ def cmd_update(args):
         return custody.refusal_notice() if custody is not None else None
 
     try:
-        _cmd_update_impl(args, gateway_mode=gateway_mode)
+        from hermes_cli.update_command_hook import run_update_hook
+        from hermes_constants import get_hermes_home
+        if not run_update_hook(PROJECT_ROOT, get_hermes_home(), branch=_resolve_update_branch(args), surface='cli'):
+            _cmd_update_impl(args, gateway_mode=gateway_mode)
     except (InstallError, OSError, subprocess.SubprocessError) as exc:
         refusal = _custody_refusal()
         print(refusal or f"✗ Update failed: {exc}")
