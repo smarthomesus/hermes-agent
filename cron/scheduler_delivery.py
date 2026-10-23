@@ -1270,6 +1270,11 @@ def _live_send_text(
     """Schedule the text send on the gateway loop; returns ``(adapter_ok, timed_out, message_id)``.
     Re-raises a real send error so the caller falls through to standalone."""
     from agent.async_utils import safe_schedule_threadsafe
+    from gateway.delivery_transactions import prepare_optional_delivery, strip_delivery_controls
+    lease = prepare_optional_delivery(t.platform_name,
+        {'chat_id': t.chat_id, 'thread_id': route_thread_id, 'job_id': t.job['id']}, text_to_send)
+    text_to_send = lease.body if lease else strip_delivery_controls(text_to_send)
+    route_metadata = {**route_metadata, **(lease.metadata if lease else {})}
     from gateway.delivery import DeliveryRouter, DeliveryTarget, PartialDeliveryError
     job = t.job
     router = DeliveryRouter(t.config, t.target_adapters)
@@ -1291,10 +1296,19 @@ def _live_send_text(
             if dispatch["abandoned"]:
                 return None
             dispatch["started"] = True
-        return await router._deliver_to_platform(route_target, text_to_send, route_metadata, transport=t.transport)
+        try:
+            result = await router._deliver_to_platform(route_target, text_to_send, route_metadata, transport=t.transport)
+            if lease:
+                mid = _result_field(result, 'message_id')
+                lease.settle('confirmed' if mid and _result_field(result, 'success') is True else 'ambiguous_timeout', [mid] if mid else [])
+            return result
+        except BaseException:
+            if lease: lease.settle('ambiguous_timeout')
+            raise
 
     future = safe_schedule_threadsafe(_send_once(), t.loop)
     if future is None:
+        if lease: lease.settle('failed_before_send')
         target_errors.append("live adapter event loop scheduling failed")
         return False, False, None
     try:
@@ -1305,6 +1319,7 @@ def _live_send_text(
         # legitimately outlast the wait) — leave it running; a standalone resend would DUPLICATE.
         with dispatch_lock:
             dispatch["abandoned"] = not dispatch["started"]
+        if lease: lease.settle('ambiguous_timeout')
         if dispatch["abandoned"]:
             future.cancel()
             msg = f"live adapter send to {t.where} timed out before the coroutine was dispatched"
@@ -1505,6 +1520,13 @@ def _standalone_send(
     """Run the standalone sender for one target: ``(result, None)`` or ``(None, error)`` (already
     logged — WARNING for a shutdown race, ERROR with traceback otherwise)."""
     from tools.send_message_tool import _send_to_platform
+    from gateway.delivery_transactions import prepare_optional_delivery, strip_delivery_controls
+    lease = prepare_optional_delivery(t.platform_name,
+        {'chat_id': t.chat_id, 'thread_id': t.thread_id, 'job_id': t.job['id'], 'standalone': True}, content)
+    content = lease.body if lease else strip_delivery_controls(content)
+    if lease and lease.metadata:
+        lease.settle('failed_before_send')
+        return None, 'standalone transport cannot carry extension metadata'
     job = t.job
     shutdown_msg = f"delivery to {t.where} skipped — interpreter is shutting down"
 
@@ -1513,9 +1535,17 @@ def _standalone_send(
     async def _send():
         # The bound lives inside the coroutine: the running-loop fallback below closes ``coro``
         # unstarted, and a wait_for wrapper created out here would be left never awaited.
-        return await asyncio.wait_for(_send_to_platform(
-            t.platform, t.pconfig, t.chat_id, content, thread_id=t.thread_id,
-            media_files=media_files), timeout=send_timeout)
+        try:
+            result = await asyncio.wait_for(_send_to_platform(
+                t.platform, t.pconfig, t.chat_id, content, thread_id=t.thread_id,
+                media_files=media_files), timeout=send_timeout)
+            if lease:
+                mid = _result_field(result, 'message_id')
+                lease.settle('confirmed' if mid and _result_field(result, 'success') is True else 'ambiguous_timeout', [mid] if mid else [])
+            return result
+        except BaseException:
+            if lease: lease.settle('ambiguous_timeout')
+            raise
 
     def _warned(msg: str) -> tuple[None, str]:
         logger.warning("Job '%s': %s", job["id"], msg)
@@ -1529,10 +1559,12 @@ def _standalone_send(
     # Interpreter finalizing (SIGTERM/restart/OOM): asyncio.run and a fresh ThreadPoolExecutor both
     # raise "cannot schedule new futures after interpreter shutdown" — warn, not ERROR traceback.
     if _sched._interpreter_shutting_down():
+        if lease: lease.settle('failed_before_send')
         return _warned(shutdown_msg)
     # The live lane failed closed on an empty payload; standalone senders don't (Telegram returns
     # success=True for empty content WITHOUT an API call) — a phantom delivery would result.
     if not content.strip() and not media_files:
+        if lease: lease.settle('failed_before_send')
         return _warned(f"standalone send skipped (empty text and no media) for {t.where}")
     coro = _send()
     try:
@@ -1547,6 +1579,8 @@ def _standalone_send(
     except RuntimeError as run_err:
         # asyncio.run() refuses inside a running loop; close the unstarted coro, retry in a thread.
         coro.close()
+        if lease and lease.settled:
+            return _failed(run_err)
         if _sched._interpreter_shutting_down(run_err):
             return _warned(shutdown_msg)
         # The fallback can itself raise (SMTP, result timeout); catch it or remaining targets skip.
